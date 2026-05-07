@@ -343,6 +343,57 @@ mod tests {
     }
 
     #[test]
+    fn test_policy_engine_path_prefix_specificity() {
+        // Specificity is measured by literal-character count in the glob
+        // pattern — not by semantic narrowness. This test verifies that a
+        // pattern with more path segments and literal chars outranks a
+        // shorter, seemingly "simpler" pattern, even when human intuition
+        // might consider the shorter one more restrictive.
+        //
+        // policies:
+        //   - permission: allow
+        //     rule:
+        //       write: "src/**/*.rs"  // specificity=7 ("s","r","c","/","/",".","r","s")
+        //   - permission: deny
+        //     rule:
+        //       write: "*.rs"         // specificity=3 (".","r","s")
+        //
+        // operation: write "src/utils/helper.rs"
+        //   → matches allow "src/**/*.rs" (spec=7)
+        //   → matches deny  "*.rs"        (spec=3)
+        //   → 7 > 3  →  allow wins
+        //
+        // operation: write "test.rs"  (outside src/)
+        //   → matches deny "*.rs" only (spec=3)
+        //   → deny wins
+        let fixture_workflow = PolicyConfig::new()
+            .add_policy(Policy::Simple {
+                permission: Permission::Allow,
+                rule: Rule::Write(WriteRule { write: "src/**/*.rs".to_string(), dir: None }),
+            })
+            .add_policy(Policy::Simple {
+                permission: Permission::Deny,
+                rule: Rule::Write(WriteRule { write: "*.rs".to_string(), dir: None }),
+            });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let inside_src = PermissionOperation::Write {
+            path: std::path::PathBuf::from("src/utils/helper.rs"),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Create/overwrite file: src/utils/helper.rs".to_string(),
+        };
+        let outside_src = PermissionOperation::Write {
+            path: std::path::PathBuf::from("test.rs"),
+            cwd: std::path::PathBuf::from("/test/cwd"),
+            message: "Create/overwrite file: test.rs".to_string(),
+        };
+
+        // Path "narrowness" (src/ prefix) wins because it has more literals.
+        assert_eq!(fixture.can_perform(&inside_src), Permission::Allow);
+        // File outside src/ only matches the broad deny.
+        assert_eq!(fixture.can_perform(&outside_src), Permission::Deny);
+    }
+
+    #[test]
     fn test_policy_engine_can_perform_net_fetch() {
         let fixture_workflow = fixture_workflow_with_net_fetch_policy();
         let fixture = PolicyEngine::new(&fixture_workflow);
