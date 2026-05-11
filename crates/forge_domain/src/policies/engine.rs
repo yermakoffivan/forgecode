@@ -33,7 +33,8 @@ impl<'a> PolicyEngine<'a> {
             .unwrap_or(Permission::Confirm)
     }
 
-    /// Finds the most-specific matching policy. Ties broken by restrictiveness (Deny > Confirm > Allow).
+    /// Finds the most-specific matching policy. Ties broken by restrictiveness
+    /// (Deny > Confirm > Allow).
     fn evaluate_policy_set<'p, I: IntoIterator<Item = &'p Policy>>(
         &self,
         policies: I,
@@ -181,7 +182,8 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-/// Verifies order independence: deny first, allow second should yield same result.
+    /// Verifies order independence: deny first, allow second should yield same
+    /// result.
     #[test]
     fn test_policy_engine_specific_allow_wins_regardless_of_order() {
         let fixture_workflow = PolicyConfig::new()
@@ -211,7 +213,7 @@ mod tests {
         assert_eq!(fixture.can_perform(&py_op), Permission::Deny);
     }
 
-/// Verifies carve-out exception: specific deny beats broad allow.
+    /// Verifies carve-out exception: specific deny beats broad allow.
     #[test]
     fn test_policy_engine_specific_deny_carves_out_exception_in_broad_allow() {
         let fixture_workflow = PolicyConfig::new()
@@ -239,7 +241,7 @@ mod tests {
         assert_eq!(fixture.can_perform(&other_op), Permission::Allow);
     }
 
-/// Tie-breaker: Deny wins when specificity is equal.
+    /// Tie-breaker: Deny wins when specificity is equal.
     #[test]
     fn test_policy_engine_equal_specificity_prefers_deny() {
         let fixture_workflow = PolicyConfig::new()
