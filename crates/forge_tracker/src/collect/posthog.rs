@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::OnceLock;
 use std::time::Duration;
 
 use chrono::NaiveDateTime;
@@ -14,24 +13,21 @@ use crate::Event;
 
 pub struct Tracker {
     api_secret: &'static str,
-    client: OnceLock<Client>,
+    client: Client,
 }
 
 impl Tracker {
     pub fn new(api_secret: &'static str) -> Self {
-        Self { api_secret, client: OnceLock::new() }
-    }
+        // Configure HTTP client with connection pooling similar to forge_provider
+        let client = forge_reqwest::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .read_timeout(Duration::from_secs(30))
+            .pool_idle_timeout(Duration::from_secs(90))
+            .pool_max_idle_per_host(5)
+            .build()
+            .expect("Failed to build HTTP client for PostHog tracker");
 
-    fn client(&self) -> &Client {
-        self.client.get_or_init(|| {
-            forge_reqwest::builder()
-                .connect_timeout(Duration::from_secs(10))
-                .read_timeout(Duration::from_secs(30))
-                .pool_idle_timeout(Duration::from_secs(90))
-                .pool_max_idle_per_host(5)
-                .build()
-                .expect("Failed to build HTTP client for PostHog tracker")
-        })
+        Self { api_secret, client }
     }
 }
 
@@ -100,7 +96,7 @@ impl Collect for Tracker {
     // TODO: move http request to a dispatch
     async fn collect(&self, event: Event) -> Result<()> {
         let request = self.create_request(event)?;
-        self.client().execute(request).await?;
+        self.client.execute(request).await?;
 
         Ok(())
     }
