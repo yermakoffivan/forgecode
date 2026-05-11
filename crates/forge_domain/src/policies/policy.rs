@@ -112,12 +112,7 @@ impl Policy {
         }
     }
 
-    /// Returns the specificity score for this policy.
-    ///
-    /// For [`Policy::Simple`], this delegates to [`Rule::specificity`].
-    /// For composite policies (`All`/`Any`/`Not`), the maximum specificity
-    /// across all child rules is used so that nested specific rules still
-    /// outrank shallower broad ones.
+    /// Returns the max specificity across child rules.
     pub fn specificity(&self) -> usize {
         match self {
             Policy::Simple { permission: _, rule } => rule.specificity(),

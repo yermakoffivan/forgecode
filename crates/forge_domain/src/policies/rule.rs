@@ -98,18 +98,7 @@ impl Rule {
         }
     }
 
-    /// Returns a specificity score for this rule's glob pattern(s).
-    ///
-    /// Specificity is the count of *literal* characters in the pattern
-    /// (i.e. characters that aren't glob wildcards `*` or `?`). Higher
-    /// scores indicate a narrower, more specific match. The optional `dir`
-    /// component contributes its own literal-character count to the total.
-    ///
-    /// This is used by [`PolicyEngine`] to break ambiguity when multiple
-    /// rules match the same operation: the rule with the highest
-    /// specificity wins, regardless of declaration order.
-    ///
-    /// [`PolicyEngine`]: crate::PolicyEngine
+    /// Returns a specificity score (count of literal chars) for tie-breaking.
     pub fn specificity(&self) -> usize {
         fn count_literals(pattern: &str) -> usize {
             pattern.chars().filter(|c| !matches!(c, '*' | '?')).count()

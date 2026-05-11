@@ -33,20 +33,7 @@ impl<'a> PolicyEngine<'a> {
             .unwrap_or(Permission::Confirm)
     }
 
-    /// Helper function to evaluate a set of policies using a
-    /// *most-specific-pattern-wins* model.
-    ///
-    /// Among all policies whose rule matches the operation, the one with
-    /// the highest [`Policy::specificity`] takes effect. Ties are broken by
-    /// preferring the more restrictive permission (`Deny > Confirm > Allow`),
-    /// which keeps the engine safe-by-default when two equally-specific
-    /// rules disagree.
-    ///
-    /// Declaration order in `permissions.yaml` does not affect the outcome,
-    /// so users can express both "allow specific, deny everything else" and
-    /// "deny everything, allow specific" without worrying about ordering.
-    ///
-    /// Returns `None` if no policy matches.
+    /// Finds the most-specific matching policy. Ties broken by restrictiveness (Deny > Confirm > Allow).
     fn evaluate_policy_set<'p, I: IntoIterator<Item = &'p Policy>>(
         &self,
         policies: I,
@@ -165,30 +152,9 @@ mod tests {
         assert_eq!(actual, Permission::Allow);
     }
 
-    /// Regression test for https://github.com/tailcallhq/forgecode/issues/3085
-    ///
-    /// The documented `permissions.yaml` example claims to allow writes to
-    /// one kind of file (`**/*.rs`) while denying writes to everything else
-    /// (`**/*`). The original engine always short-circuited on the first
-    /// matching `Deny`, so the broad `deny write` rule silently overrode
-    /// the more-specific `allow write`.
-    ///
-    /// Under the *most-specific-pattern-wins* model, `**/*.rs` (3 literal
-    /// chars) is more specific than `**/*` (0 literals), so writes to `.rs`
-    /// files are correctly allowed regardless of declaration order.
+    /// Regression: specific allow should win over broad deny (issue #3085).
     #[test]
     fn test_policy_engine_specific_allow_should_win_over_broad_deny() {
-        // policies:
-        //   - permission: allow rule: read: "**/*"
-        //   - permission: allow rule: write: "**/*.rs"    // specificity=3 (l: "",
-        //     "/*/", ".rs")
-        //   - permission: deny rule: write: "**/*"       // specificity=0 (all
-        //     wildcards)
-        //
-        // operation: write "test.rs"
-        //   → matches allow "**/*.rs"  (spec=3)
-        //   → matches deny  "**/*"     (spec=0)
-        //   → 3 > 0  →  allow wins
         let fixture_workflow = PolicyConfig::new()
             .add_policy(Policy::Simple {
                 permission: Permission::Allow,
@@ -215,24 +181,9 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-    /// Order-independence companion: same allow/deny pair as the issue
-    /// scenario but with the broad deny declared *first*. Under
-    /// most-specific-wins the result must be identical — declaration order
-    /// must not change the outcome.
+/// Verifies order independence: deny first, allow second should yield same result.
     #[test]
     fn test_policy_engine_specific_allow_wins_regardless_of_order() {
-        // policies:
-        //   - permission: deny rule: write: "**/*"       // specificity=0
-        //   - permission: allow rule: write: "**/*.rs"    // specificity=3
-        //
-        // operation: write "test.rs"
-        //   → matches deny  "**/*"  (spec=0)
-        //   → matches allow "**/*.rs" (spec=3)
-        //   → 3 > 0  →  allow wins  (same result as issue scenario)
-        //
-        // operation: write "test.py"
-        //   → matches deny "**/*" only (spec=0)
-        //   → only rule is deny  →  deny wins
         let fixture_workflow = PolicyConfig::new()
             .add_policy(Policy::Simple {
                 permission: Permission::Deny,
@@ -260,27 +211,9 @@ mod tests {
         assert_eq!(fixture.can_perform(&py_op), Permission::Deny);
     }
 
-    /// Carve-out exception: a broad allow with a narrow deny exception.
-    /// Under most-specific-wins the deny on the literal filename
-    /// (`secret.rs`, all literals) outranks the broader allow on
-    /// `**/*.rs`, so writes to `secret.rs` are blocked while other `.rs`
-    /// files remain writable.
+/// Verifies carve-out exception: specific deny beats broad allow.
     #[test]
     fn test_policy_engine_specific_deny_carves_out_exception_in_broad_allow() {
-        // policies:
-        //   - permission: allow rule: write: "**/*.rs"    // specificity=3
-        //   - permission: deny rule: write: "secret.rs"  // specificity=9 (all
-        //     literals)
-        //
-        // operation: write "secret.rs"
-        //   → matches allow "**/*.rs" (spec=3)
-        //   → matches deny  "secret.rs" (spec=9)
-        //   → 9 > 3  →  deny wins  (carve-out respected)
-        //
-        // operation: write "main.rs"
-        //   → matches allow "**/*.rs" (spec=3)
-        //   → no deny match
-        //   → allow wins
         let fixture_workflow = PolicyConfig::new()
             .add_policy(Policy::Simple {
                 permission: Permission::Allow,
@@ -306,20 +239,9 @@ mod tests {
         assert_eq!(fixture.can_perform(&other_op), Permission::Allow);
     }
 
-    /// Tie-break test: when two equally-specific rules disagree, the more
-    /// restrictive permission wins. Both rules use the literal pattern
-    /// `secret.rs`, so specificity is identical; `Deny` must override
-    /// `Allow` for safety.
+/// Tie-breaker: Deny wins when specificity is equal.
     #[test]
     fn test_policy_engine_equal_specificity_prefers_deny() {
-        // policies:
-        //   - permission: allow rule: write: "secret.rs"  // specificity=9
-        //   - permission: deny rule: write: "secret.rs"  // specificity=9
-        //
-        // operation: write "secret.rs"
-        //   → matches both rules (spec=9 each)
-        //   → specificity tie  →  restrictiveness breaks it
-        //   → Deny (2) > Allow (0)  →  deny wins  (safe default)
         let fixture_workflow = PolicyConfig::new()
             .add_policy(Policy::Simple {
                 permission: Permission::Allow,
@@ -344,26 +266,6 @@ mod tests {
 
     #[test]
     fn test_policy_engine_path_prefix_specificity() {
-        // Specificity is measured by literal-character count in the glob
-        // pattern — not by semantic narrowness. This test verifies that a
-        // pattern with more path segments and literal chars outranks a
-        // shorter, seemingly "simpler" pattern, even when human intuition
-        // might consider the shorter one more restrictive.
-        //
-        // policies:
-        //   - permission: allow rule: write: "src/**/*.rs"  // specificity=7
-        //     ("s","r","c","/","/",".","r","s")
-        //   - permission: deny rule: write: "*.rs"         // specificity=3
-        //     (".","r","s")
-        //
-        // operation: write "src/utils/helper.rs"
-        //   → matches allow "src/**/*.rs" (spec=7)
-        //   → matches deny  "*.rs"        (spec=3)
-        //   → 7 > 3  →  allow wins
-        //
-        // operation: write "test.rs"  (outside src/)
-        //   → matches deny "*.rs" only (spec=3)
-        //   → deny wins
         let fixture_workflow = PolicyConfig::new()
             .add_policy(Policy::Simple {
                 permission: Permission::Allow,

@@ -16,9 +16,7 @@ pub enum Permission {
 }
 
 impl Permission {
-    /// Restrictiveness score used as a tie-breaker when multiple policies
-    /// match an operation with the same specificity. Higher values are more
-    /// restrictive: `Deny > Confirm > Allow`.
+    /// Tie-breaker score: Deny > Confirm > Allow.
     pub(crate) fn restrictiveness(&self) -> u8 {
         match self {
             Permission::Deny => 2,
