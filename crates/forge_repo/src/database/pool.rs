@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use backon::{BlockingRetryable, ExponentialBuilder};
-use diesel::prelude::*;
+use diesel::connection::SimpleConnection;
 use diesel::r2d2::{ConnectionManager, CustomizeConnection, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
@@ -164,32 +164,13 @@ struct SqliteCustomizer;
 
 impl CustomizeConnection<SqliteConnection, diesel::r2d2::Error> for SqliteCustomizer {
     fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), diesel::r2d2::Error> {
-        // Health check: verify the connection is alive before handing it out.
-        // This catches stale connections that were evicted and recreated during
-        // idle periods.
-        diesel::sql_query("SELECT 1")
-            .execute(conn)
-            .map_err(diesel::r2d2::Error::QueryError)?;
-
-        diesel::sql_query("PRAGMA busy_timeout = 30000;")
-            .execute(conn)
-            .map_err(diesel::r2d2::Error::QueryError)?;
-        diesel::sql_query("PRAGMA journal_mode = WAL;")
-            .execute(conn)
-            .map_err(diesel::r2d2::Error::QueryError)?;
-        diesel::sql_query("PRAGMA synchronous = NORMAL;")
-            .execute(conn)
-            .map_err(diesel::r2d2::Error::QueryError)?;
-        diesel::sql_query("PRAGMA wal_autocheckpoint = 1000;")
-            .execute(conn)
-            .map_err(diesel::r2d2::Error::QueryError)?;
-        // Checkpoint the WAL to ensure a clean state, especially important
-        // after long idle periods where the WAL may have grown or become
-        // inconsistent.
-        diesel::sql_query("PRAGMA wal_checkpoint(TRUNCATE)")
-            .execute(conn)
-            .map_err(diesel::r2d2::Error::QueryError)?;
-        Ok(())
+        conn.batch_execute(
+            "PRAGMA busy_timeout = 30000;
+             PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA wal_autocheckpoint = 1000;",
+        )
+        .map_err(diesel::r2d2::Error::QueryError)
     }
 }
 
@@ -257,6 +238,7 @@ impl DatabasePool {
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
+    use diesel::prelude::*;
 
     use super::*;
 
