@@ -163,6 +163,15 @@ where
         + DirectoryReaderInfra
         + UserInfra,
 {
+    /// Unconditionally persist an allow policy for the given operation.
+    async fn allow_operation(
+        &self,
+        operation: &PermissionOperation,
+    ) -> anyhow::Result<()> {
+        self.add_policy_for_operation(operation).await?;
+        Ok(())
+    }
+
     /// Check if an operation is allowed based on policies and handle user
     /// confirmation
     async fn check_operation_permission(

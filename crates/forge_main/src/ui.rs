@@ -576,6 +576,21 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     // Write back to the specific scope only
                     self.api.write_mcp_config(&scope, &scope_config).await?;
 
+                    let cwd = self.api.environment().cwd;
+
+                    // Grant allow permission for each imported server so the user
+                    // is not prompted again on first use — importing is itself an
+                    // explicit opt-in.
+                    for server_name in &added_servers {
+                        let operation = forge_domain::PermissionOperation::Mcp {
+                            server: server_name.to_string(),
+                            scope,
+                            cwd: cwd.clone(),
+                            message: format!("Connect to MCP server: {server_name}"),
+                        };
+                        self.api.allow_operation(&operation).await?;
+                    }
+
                     // Log each added server after successful write
                     for server_name in added_servers {
                         self.writeln_title(TitleFormat::info(format!(

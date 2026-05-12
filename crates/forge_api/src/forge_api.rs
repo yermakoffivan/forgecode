@@ -8,7 +8,8 @@ use forge_app::{
     AgentProviderResolver, AgentRegistry, AppConfigService, AuthService, CommandInfra,
     CommandLoaderService, ConversationService, DataGenerationApp, EnvironmentInfra,
     FileDiscoveryService, ForgeApp, GitApp, GrpcInfra, McpConfigManager, McpService,
-    ProviderAuthService, ProviderService, Services, User, UserUsage, Walker, WorkspaceService,
+    PolicyService, ProviderAuthService, ProviderService, Services, User, UserUsage, Walker,
+    WorkspaceService,
 };
 use forge_config::ForgeConfig;
 use forge_domain::{Agent, ConsoleWriter, *};
@@ -225,6 +226,10 @@ impl<
             .write_mcp_config(config, scope)
             .await
             .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    async fn allow_operation(&self, operation: &PermissionOperation) -> Result<()> {
+        self.services.allow_operation(operation).await
     }
 
     async fn execute_shell_command_raw(

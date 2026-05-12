@@ -485,6 +485,14 @@ pub trait PolicyService: Send + Sync {
         &self,
         operation: &forge_domain::PermissionOperation,
     ) -> anyhow::Result<PolicyDecision>;
+
+    /// Unconditionally persist an allow policy for the given operation.
+    /// Used when the user has explicitly opted in (e.g. via `mcp import`) so
+    /// no interactive confirmation is needed.
+    async fn allow_operation(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<()>;
 }
 
 /// Skill fetch service
@@ -941,6 +949,13 @@ impl<I: Services> PolicyService for I {
         self.policy_service()
             .check_operation_permission(operation)
             .await
+    }
+
+    async fn allow_operation(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<()> {
+        self.policy_service().allow_operation(operation).await
     }
 }
 
