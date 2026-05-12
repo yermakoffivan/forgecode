@@ -7,9 +7,25 @@ use std::ops::Deref;
 use derive_more::{Deref, Display, From};
 use derive_setters::Setters;
 use merge::Merge;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Which `.mcp.json` declared a server: the user-level file (global to the
+/// machine) or the project-local one.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
 pub enum Scope {
     Local,
     User,

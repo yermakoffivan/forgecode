@@ -108,7 +108,7 @@ where
     async fn init_mcp(&self) -> anyhow::Result<()> {
         let user_cfg = self.manager.read_mcp_config(Some(&Scope::User)).await?;
         let local_cfg = self.manager.read_mcp_config(Some(&Scope::Local)).await?;
-        let mut merged = user_cfg;
+        let mut merged = user_cfg.clone();
         merged.merge(local_cfg.clone());
 
         // Fast path: if config is unchanged, skip reinitialization without acquiring
@@ -126,11 +126,12 @@ where
             return Ok(());
         }
 
-        self.update_mcp(local_cfg, merged).await
+        self.update_mcp(user_cfg, local_cfg, merged).await
     }
 
     async fn update_mcp(
         &self,
+        user_cfg: McpConfig,
         local_cfg: McpConfig,
         merged: McpConfig,
     ) -> anyhow::Result<()> {
@@ -141,22 +142,20 @@ where
         self.clear_tools().await;
         self.failed_servers.write().await.clear();
 
-        // Trust model:
-        //   - User-scope servers (~/.forge/.mcp.json) are auto-allowed: editing
-        //     that file is itself a deliberate, global opt-in.
-        //   - Local-scope servers (the project's .mcp.json) go through the
-        //     policy engine. Since local entries shadow user entries of the
-        //     same name, any name present in local must clear the prompt.
-        let local_authorized = self.authorize_servers(&local_cfg).await?;
+        // Run policy authorisation against both scopes. The default policy ships
+        // an `allow` rule for `scope: user` and a `confirm` rule for `scope:
+        // local`, but users can override either. Local entries are checked
+        // first because they shadow user entries of the same name in the
+        // merged config; the `visited` set prevents prompting twice for a
+        // duplicated name.
+        let authorized = self
+            .authorize_servers([(Scope::Local, &local_cfg), (Scope::User, &user_cfg)])
+            .await?;
 
         let connections: Vec<_> = merged
             .mcp_servers
             .into_iter()
-            .filter(|(name, server)| {
-                !server.is_disabled()
-                    && (!local_cfg.mcp_servers.contains_key(name)
-                        || local_authorized.contains(name))
-            })
+            .filter(|(name, server)| !server.is_disabled() && authorized.contains(name))
             .map(|(name, server)| async move {
                 let conn = self
                     .connect(&name, server)
@@ -187,36 +186,44 @@ where
         Ok(())
     }
 
-    /// Runs the permission policy against every enabled server in `config`,
-    /// returning the set of names the user authorised. Denials (whether from
-    /// an existing `Deny` policy or an interactive `Confirm` rejection) are
-    /// recorded in `failed_servers` with a human-readable reason.
-    async fn authorize_servers(
+    /// Runs the permission policy against every enabled server in each
+    /// `(scope, config)` pair, returning the set of names the user
+    /// authorised. Scopes are processed in iteration order; a server name
+    /// already seen in an earlier scope is skipped so duplicates (e.g. a
+    /// local entry overriding a user one) prompt only for the authoritative
+    /// scope. Denials — from a `Deny` policy or interactive rejection —
+    /// are recorded in `failed_servers` with a human-readable reason.
+    async fn authorize_servers<'a>(
         &self,
-        config: &McpConfig,
+        scoped: impl IntoIterator<Item = (Scope, &'a McpConfig)>,
     ) -> anyhow::Result<HashSet<ServerName>> {
         let mut authorized = HashSet::new();
+        let mut visited: HashSet<ServerName> = HashSet::new();
         let mut denied: Vec<(ServerName, String)> = Vec::new();
 
         // Sequential: prompts require user input and must not hold any lock
         // while awaiting a response.
-        for (name, server) in &config.mcp_servers {
-            if server.is_disabled() {
-                continue;
-            }
-            let operation = PermissionOperation::Mcp {
-                server: name.to_string(),
-                message: format!("Connect to MCP server: {name}"),
-            };
-            match self.policy.check_operation_permission(&operation).await {
-                Ok(decision) if decision.allowed => {
-                    authorized.insert(name.clone());
+        for (scope, cfg) in scoped {
+            for (name, server) in &cfg.mcp_servers {
+                if server.is_disabled() || !visited.insert(name.clone()) {
+                    continue;
                 }
-                Ok(_) => {
-                    denied.push((name.clone(), "Connection denied by user policy".to_string()));
-                }
-                Err(err) => {
-                    denied.push((name.clone(), format!("Policy check failed: {err:?}")));
+                let operation = PermissionOperation::Mcp {
+                    server: name.to_string(),
+                    scope,
+                    message: format!("Connect to MCP server: {name}"),
+                };
+                match self.policy.check_operation_permission(&operation).await {
+                    Ok(decision) if decision.allowed => {
+                        authorized.insert(name.clone());
+                    }
+                    Ok(_) => {
+                        denied
+                            .push((name.clone(), "Connection denied by user policy".to_string()));
+                    }
+                    Err(err) => {
+                        denied.push((name.clone(), format!("Policy check failed: {err:?}")));
+                    }
                 }
             }
         }

@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::mcp::Scope;
+
 /// Operations that can be performed and need policy checking
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PermissionOperation {
@@ -27,5 +29,12 @@ pub enum PermissionOperation {
     /// it appears in `.mcp.json`. Evaluated once per server when the MCP
     /// service brings up connections; the decision then gates every tool
     /// call routed through that server.
-    Mcp { server: String, message: String },
+    Mcp {
+        server: String,
+        /// Which config file declared the server. Lets policy rules
+        /// differentiate user-level (global) trust from project-local
+        /// trust.
+        scope: Scope,
+        message: String,
+    },
 }

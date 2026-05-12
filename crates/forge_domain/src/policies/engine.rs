@@ -91,6 +91,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+    use crate::mcp::Scope;
     use crate::{
         ExecuteRule, Fetch, McpRule, Permission, Policy, PolicyConfig, ReadRule, Rule, WriteRule,
     };
@@ -208,11 +209,12 @@ mod tests {
     fn test_policy_engine_mcp_unmatched_defaults_to_confirm() {
         let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule { mcp: "github".to_string() }),
+            rule: Rule::Mcp(McpRule { mcp: "github".to_string(), scope: None }),
         });
         let fixture = PolicyEngine::new(&fixture_workflow);
         let operation = PermissionOperation::Mcp {
             server: "slack".to_string(),
+            scope: Scope::Local,
             message: "Execute MCP tool: mcp_slack_tool_send".to_string(),
         };
 
@@ -225,16 +227,39 @@ mod tests {
     fn test_policy_engine_mcp_matching_glob_allows() {
         let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule { mcp: "git*".to_string() }),
+            rule: Rule::Mcp(McpRule { mcp: "git*".to_string(), scope: None }),
         });
         let fixture = PolicyEngine::new(&fixture_workflow);
         let operation = PermissionOperation::Mcp {
             server: "github".to_string(),
+            scope: Scope::Local,
             message: "Execute MCP tool: mcp_github_tool_create_issue".to_string(),
         };
 
         let actual = fixture.can_perform(&operation);
 
         assert_eq!(actual, Permission::Allow);
+    }
+
+    #[test]
+    fn test_policy_engine_mcp_scope_filter_skips_non_matching_scope() {
+        // A `scope: user` rule must not affect a Local-scope operation.
+        let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
+            permission: Permission::Allow,
+            rule: Rule::Mcp(McpRule {
+                mcp: "*".to_string(),
+                scope: Some(Scope::User),
+            }),
+        });
+        let fixture = PolicyEngine::new(&fixture_workflow);
+        let operation = PermissionOperation::Mcp {
+            server: "github".to_string(),
+            scope: Scope::Local,
+            message: "Execute MCP tool: mcp_github_tool_create_issue".to_string(),
+        };
+
+        let actual = fixture.can_perform(&operation);
+
+        assert_eq!(actual, Permission::Confirm);
     }
 }

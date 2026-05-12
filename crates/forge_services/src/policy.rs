@@ -272,9 +272,13 @@ fn create_policy_for_operation(
                 }),
             }
         }
-        PermissionOperation::Mcp { server, .. } => Some(Policy::Simple {
+        PermissionOperation::Mcp { server, scope, .. } => Some(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule { mcp: server.clone() }),
+            // Scope the remembered decision to the same scope that triggered
+            // the prompt so the trust doesn't silently leak to a different
+            // `.mcp.json` later (e.g. accepting a local-scope server should
+            // not also auto-allow a user-scope entry with the same name).
+            rule: Rule::Mcp(McpRule { mcp: server.clone(), scope: Some(*scope) }),
         }),
     }
 }
@@ -462,6 +466,7 @@ mod tests {
     fn test_create_policy_for_mcp_operation() {
         let operation = PermissionOperation::Mcp {
             server: "github".to_string(),
+            scope: forge_app::domain::Scope::Local,
             message: "Connect to MCP server: github".to_string(),
         };
 
@@ -469,7 +474,10 @@ mod tests {
 
         let expected = Some(Policy::Simple {
             permission: Permission::Allow,
-            rule: Rule::Mcp(McpRule { mcp: "github".to_string() }),
+            rule: Rule::Mcp(McpRule {
+                mcp: "github".to_string(),
+                scope: Some(forge_app::domain::Scope::Local),
+            }),
         });
 
         assert_eq!(actual, expected);

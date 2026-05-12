@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::operation::PermissionOperation;
+use crate::mcp::Scope;
 
 /// Rule for write operations with a glob pattern
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
@@ -39,15 +40,19 @@ pub struct Fetch {
     pub dir: Option<String>,
 }
 
-/// Rule for MCP server connection authorization matched by server-name glob.
+/// Rule for MCP server connection authorization matched by server-name glob,
+/// optionally narrowed to one config scope.
 ///
-/// MCP rules are intentionally scope-free: trust for a server is per-config
-/// (project's `.mcp.json` vs. the user-level one), and that distinction is
-/// resolved at the service layer before the policy engine ever runs.
+/// When `scope` is omitted the rule applies to servers from either the
+/// user-level or local `.mcp.json`; specifying `user` or `local` restricts
+/// the rule to that scope only.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 pub struct McpRule {
     /// Glob over the MCP server name as it appears in `.mcp.json`.
     pub mcp: String,
+    /// Optional config-scope filter. `None` matches any scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<Scope>,
 }
 
 /// Rules that define what operations are covered by a policy
@@ -107,8 +112,9 @@ impl Rule {
                 };
                 url_matches && dir_matches
             }
-            (Rule::Mcp(rule), PermissionOperation::Mcp { server, message: _ }) => {
-                match_pattern(&rule.mcp, server)
+            (Rule::Mcp(rule), PermissionOperation::Mcp { server, scope, message: _ }) => {
+                let scope_matches = rule.scope.is_none_or(|s| s == *scope);
+                scope_matches && match_pattern(&rule.mcp, server)
             }
             _ => false,
         }
@@ -168,7 +174,11 @@ impl Display for Fetch {
 
 impl Display for McpRule {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "mcp server '{}'", self.mcp)
+        match self.scope {
+            Some(Scope::User) => write!(f, "mcp server '{}' (user scope)", self.mcp),
+            Some(Scope::Local) => write!(f, "mcp server '{}' (local scope)", self.mcp),
+            None => write!(f, "mcp server '{}'", self.mcp),
+        }
     }
 }
 
@@ -234,6 +244,7 @@ mod tests {
     fn fixture_mcp_operation() -> PermissionOperation {
         PermissionOperation::Mcp {
             server: "github".to_string(),
+            scope: Scope::Local,
             message: "Execute MCP tool: mcp_github_tool_create_issue".to_string(),
         }
     }
@@ -358,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_mcp_rule_exact_match() {
-        let fixture = Rule::Mcp(McpRule { mcp: "github".to_string() });
+        let fixture = Rule::Mcp(McpRule { mcp: "github".to_string(), scope: None });
         let operation = fixture_mcp_operation();
 
         let actual = fixture.matches(&operation);
@@ -368,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_mcp_rule_glob_wildcard() {
-        let fixture = Rule::Mcp(McpRule { mcp: "git*".to_string() });
+        let fixture = Rule::Mcp(McpRule { mcp: "git*".to_string(), scope: None });
         let operation = fixture_mcp_operation();
 
         let actual = fixture.matches(&operation);
@@ -378,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_mcp_rule_does_not_match_other_server() {
-        let fixture = Rule::Mcp(McpRule { mcp: "slack".to_string() });
+        let fixture = Rule::Mcp(McpRule { mcp: "slack".to_string(), scope: None });
         let operation = fixture_mcp_operation();
 
         let actual = fixture.matches(&operation);
@@ -388,8 +399,30 @@ mod tests {
 
     #[test]
     fn test_mcp_rule_does_not_match_non_mcp_operation() {
-        let fixture = Rule::Mcp(McpRule { mcp: "*".to_string() });
+        let fixture = Rule::Mcp(McpRule { mcp: "*".to_string(), scope: None });
         let operation = fixture_execute_operation();
+
+        let actual = fixture.matches(&operation);
+
+        assert_eq!(actual, false);
+    }
+
+    #[test]
+    fn test_mcp_rule_scope_matches_local() {
+        let fixture =
+            Rule::Mcp(McpRule { mcp: "*".to_string(), scope: Some(Scope::Local) });
+        let operation = fixture_mcp_operation();
+
+        let actual = fixture.matches(&operation);
+
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_mcp_rule_scope_filters_out_user() {
+        let fixture =
+            Rule::Mcp(McpRule { mcp: "*".to_string(), scope: Some(Scope::User) });
+        let operation = fixture_mcp_operation();
 
         let actual = fixture.matches(&operation);
 
