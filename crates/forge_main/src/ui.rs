@@ -1771,7 +1771,7 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             // Show the endpoint (URL for HTTP, command for stdio) so the user
             // can see exactly what will be executed/contacted if they accept.
             rows.push(SelectRow::header(format!(
-                "  - {name}: {}",
+                "  - {name}: {}\n",
                 format_mcp_server(server),
             )));
         }

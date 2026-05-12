@@ -101,7 +101,8 @@ where
     }
 
     async fn init_mcp(&self) -> anyhow::Result<()> {
-        let mcp = self.manager.read_mcp_config(None).await?;
+        let raw_mcp = self.manager.read_mcp_config(None).await?;
+        let mcp = self.manager.filter_trusted(raw_mcp).await?;
 
         // Fast path: if config is unchanged, skip reinitialization without acquiring
         // the lock
@@ -233,10 +234,8 @@ where
     C: From<<I as McpServerInfra>::Client>,
 {
     async fn get_mcp_servers(&self) -> anyhow::Result<McpServers> {
-        // Filter the merged config so only trusted servers remain. Using the
-        // *filtered* config's hash as the cache key ensures that a cache entry
-        // populated before a rejection cannot leak rejected tools into later
-        // requests.
+        // init_mcp already filters untrusted servers before connecting, so the
+        // cache key is derived from the trusted config to avoid stale entries.
         let raw_config = self.manager.read_mcp_config(None).await?;
         let trusted_config = self.manager.filter_trusted(raw_config).await?;
         let config_hash = trusted_config.cache_key();
