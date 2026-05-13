@@ -169,6 +169,18 @@ where
         Ok(())
     }
 
+    /// Check whether an operation is explicitly permitted by the current
+    /// policy without prompting the user. `Confirm` is treated as not
+    /// permitted so callers can handle it themselves (e.g. show a warning).
+    async fn is_operation_permitted(
+        &self,
+        operation: &PermissionOperation,
+    ) -> anyhow::Result<bool> {
+        let (policies, _) = self.get_or_create_policies().await?;
+        let engine = PolicyEngine::new(&policies);
+        Ok(matches!(engine.can_perform(operation), Permission::Allow))
+    }
+
     /// Check if an operation is allowed based on policies and handle user
     /// confirmation
     async fn check_operation_permission(

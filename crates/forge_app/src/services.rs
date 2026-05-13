@@ -486,6 +486,16 @@ pub trait PolicyService: Send + Sync {
         operation: &forge_domain::PermissionOperation,
     ) -> anyhow::Result<PolicyDecision>;
 
+    /// Check whether an operation is explicitly permitted by the current
+    /// policy without prompting the user. Returns `true` only when the policy
+    /// engine resolves to `Allow`; `Confirm` and `Deny` both return `false`.
+    /// Use this instead of `check_operation_permission` when interactive
+    /// prompting must be avoided (e.g. MCP connection authorisation).
+    async fn is_operation_permitted(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<bool>;
+
     /// Unconditionally persist an allow policy for the given operation.
     /// Used when the user has explicitly opted in (e.g. via `mcp import`) so
     /// no interactive confirmation is needed.
@@ -949,6 +959,13 @@ impl<I: Services> PolicyService for I {
         self.policy_service()
             .check_operation_permission(operation)
             .await
+    }
+
+    async fn is_operation_permitted(
+        &self,
+        operation: &forge_domain::PermissionOperation,
+    ) -> anyhow::Result<bool> {
+        self.policy_service().is_operation_permitted(operation).await
     }
 
     async fn allow_operation(
