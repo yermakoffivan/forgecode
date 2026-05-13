@@ -146,8 +146,8 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
                     .collect();
                 let warning = PolicyNotice::new()
                     .row("To enable them, configure", tilde_path(&permissions_path))
-                    .items("Blocked servers:", server_names, 3)
-                    .docs("https://forgecode.dev/docs/permissions/");
+                    .docs("Learn how to configure permissions:", "https://forgecode.dev/docs/permissions/")
+                    .items("Blocked servers:", server_names, 3);
                 self.writeln_title(TitleFormat::warning(
                     "MCP servers are disabled by default.",
                 ))?;

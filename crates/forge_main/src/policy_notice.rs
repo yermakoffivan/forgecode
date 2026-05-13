@@ -8,6 +8,9 @@ enum Row {
     /// A bold label followed by a plain value on the same line. If `value` is
     /// empty the label is rendered alone.
     KeyValue { label: String, value: String },
+    /// A bold label on one line followed by a dimmed OSC 8 clickable URL on
+    /// the next line.
+    Docs { label: String, url: String },
     /// A bold label followed by a comma-separated, truncated item list.
     Items { label: String, items: Vec<String>, max_display: usize },
 }
@@ -20,6 +23,10 @@ impl Row {
             }
             Row::KeyValue { label, value } => {
                 write!(f, "  {} {value}", label.bold())
+            }
+            Row::Docs { label, url } => {
+                let link = format!("\x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\");
+                write!(f, "  {} {}", label.bold(), link.dimmed())
             }
             Row::Items { label, items, max_display } => {
                 let shown = items
@@ -41,29 +48,21 @@ impl Row {
 
 /// A composable terminal notice for policy-blocked items.
 ///
-/// Build up any combination of key-value rows, plain text rows, and truncated
-/// item-list rows, then optionally attach a dimmed docs hyperlink at the end.
-/// The `Display` impl renders each row indented with bold labels.
+/// Build up any combination of key-value rows, docs hyperlink rows, and
+/// truncated item-list rows in any order. The `Display` impl renders each row
+/// indented with bold labels.
 ///
 /// # Example
 ///
 /// ```rust,ignore
 /// let notice = PolicyNotice::new()
 ///     .row("To enable them, configure", tilde_path(&permissions_path))
-///     .row("See docs for permission examples:", "")
-///     .text("https://forgecode.dev/docs/permissions/")
+///     .docs("Learn how to configure permissions:", "https://forgecode.dev/docs/permissions/")
 ///     .items("Blocked servers:", server_names, 3);
-///
-/// // Or use the built-in docs hyperlink:
-/// let notice = PolicyNotice::new()
-///     .row("Configure permissions:", tilde_path(&permissions_path))
-///     .items("Blocked servers:", server_names, 3)
-///     .docs("https://forgecode.dev/docs/permissions/");
 /// ```
 #[derive(Default)]
 pub struct PolicyNotice {
     rows: Vec<Row>,
-    docs: Option<String>,
 }
 
 impl PolicyNotice {
@@ -79,6 +78,13 @@ impl PolicyNotice {
         self
     }
 
+    /// Appends a bold label on one line followed by a dimmed OSC 8 clickable
+    /// URL on the next line. Position in the output respects insertion order.
+    pub fn docs(mut self, label: impl Into<String>, url: impl Into<String>) -> Self {
+        self.rows.push(Row::Docs { label: label.into(), url: url.into() });
+        self
+    }
+
     /// Appends a bold-label + truncated item-list row.
     pub fn items(
         mut self,
@@ -87,12 +93,6 @@ impl PolicyNotice {
         max_display: usize,
     ) -> Self {
         self.rows.push(Row::Items { label: label.into(), items, max_display });
-        self
-    }
-
-    /// Attaches a dimmed OSC 8 clickable hyperlink rendered as the last line.
-    pub fn docs(mut self, url: impl Into<String>) -> Self {
-        self.docs = Some(url.into());
         self
     }
 }
@@ -106,13 +106,6 @@ impl fmt::Display for PolicyNotice {
             }
             row.render(f)?;
             first = false;
-        }
-        if let Some(url) = &self.docs {
-            let link = format!("\x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\");
-            if !first {
-                writeln!(f)?;
-            }
-            write!(f, "  {}", format!("Docs: {link}").dimmed())?;
         }
         Ok(())
     }
