@@ -25,6 +25,7 @@ mod utils;
 mod vscode;
 mod zsh;
 
+mod policy_notice;
 mod update;
 
 use std::sync::LazyLock;

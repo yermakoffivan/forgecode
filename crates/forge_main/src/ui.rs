@@ -39,6 +39,7 @@ use crate::display_constants::{CommandType, headers, markers, status};
 use crate::editor::ReadLineError;
 use crate::error::UIError;
 use crate::info::Info;
+use crate::policy_notice::{PolicyNotice, tilde_path};
 use crate::input::Console;
 use crate::model::{AppCommand, ForgeCommandManager};
 use crate::porcelain::Porcelain;
@@ -139,16 +140,18 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
             let warnings = tools.mcp.get_warnings();
             if !warnings.is_empty() {
                 let permissions_path = self.api.environment().permissions_path();
-                let server_list = warnings
+                let server_names = warnings
                     .iter()
-                    .map(|w| format!("    - {}", w.server_name))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                self.writeln_title(TitleFormat::warning(format!(
-                    "Some MCP servers are not allowed to execute by default. \
-                    To enable them, add matching rules in '{}'.\n{server_list}",
-                    permissions_path.display(),
-                )))?;
+                    .map(|w| w.server_name.to_string())
+                    .collect();
+                let warning = PolicyNotice::new()
+                    .row("Configure permissions:", tilde_path(&permissions_path))
+                    .items("Blocked servers:", server_names, 3)
+                    .docs("https://forgecode.dev/docs/permissions/");
+                self.writeln_title(TitleFormat::warning(
+                    "MCP servers are disabled by default.",
+                ))?;
+                self.writeln(warning.to_string())?;
             }
         }
         Ok(())
