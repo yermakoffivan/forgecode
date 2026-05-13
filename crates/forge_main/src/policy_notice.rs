@@ -1,5 +1,5 @@
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use colored::Colorize;
 
@@ -12,7 +12,11 @@ enum Row {
     /// the next line.
     Docs { label: String, url: String },
     /// A bold label followed by a comma-separated, truncated item list.
-    Items { label: String, items: Vec<String>, max_display: usize },
+    Items {
+        label: String,
+        items: Vec<String>,
+        max_display: usize,
+    },
 }
 
 impl Row {
@@ -74,14 +78,16 @@ impl PolicyNotice {
     /// Appends a bold-label + plain-value row. Pass an empty string as `value`
     /// to render the label alone (e.g. as a section header).
     pub fn row(mut self, label: impl Into<String>, value: impl Into<String>) -> Self {
-        self.rows.push(Row::KeyValue { label: label.into(), value: value.into() });
+        self.rows
+            .push(Row::KeyValue { label: label.into(), value: value.into() });
         self
     }
 
     /// Appends a bold label on one line followed by a dimmed OSC 8 clickable
     /// URL on the next line. Position in the output respects insertion order.
     pub fn docs(mut self, label: impl Into<String>, url: impl Into<String>) -> Self {
-        self.rows.push(Row::Docs { label: label.into(), url: url.into() });
+        self.rows
+            .push(Row::Docs { label: label.into(), url: url.into() });
         self
     }
 
@@ -92,7 +98,8 @@ impl PolicyNotice {
         items: Vec<String>,
         max_display: usize,
     ) -> Self {
-        self.rows.push(Row::Items { label: label.into(), items, max_display });
+        self.rows
+            .push(Row::Items { label: label.into(), items, max_display });
         self
     }
 }
@@ -112,7 +119,7 @@ impl fmt::Display for PolicyNotice {
 }
 
 /// Abbreviates a path by replacing the home directory prefix with `~`.
-pub fn tilde_path(path: &PathBuf) -> String {
+pub fn tilde_path(path: &Path) -> String {
     if let Ok(home) = std::env::var("HOME") {
         let home_path = Path::new(&home);
         path.strip_prefix(home_path)
