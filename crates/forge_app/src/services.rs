@@ -965,7 +965,9 @@ impl<I: Services> PolicyService for I {
         &self,
         operation: &forge_domain::PermissionOperation,
     ) -> anyhow::Result<bool> {
-        self.policy_service().is_operation_permitted(operation).await
+        self.policy_service()
+            .is_operation_permitted(operation)
+            .await
     }
 
     async fn allow_operation(

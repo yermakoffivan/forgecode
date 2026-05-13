@@ -4,8 +4,8 @@ use std::sync::{Arc, LazyLock};
 use anyhow::Context;
 use bytes::Bytes;
 use forge_app::domain::{
-    ExecuteRule, Fetch, McpFilter, McpRule, Permission, PermissionOperation,
-    Policy, PolicyConfig, PolicyEngine, ReadRule, Rule, WriteRule,
+    ExecuteRule, Fetch, McpFilter, McpRule, Permission, PermissionOperation, Policy, PolicyConfig,
+    PolicyEngine, ReadRule, Rule, WriteRule,
 };
 use forge_app::{
     DirectoryReaderInfra, EnvironmentInfra, FileInfoInfra, FileReaderInfra, FileWriterInfra,

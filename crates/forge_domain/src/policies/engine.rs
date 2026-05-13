@@ -214,10 +214,7 @@ mod tests {
         let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
             permission: Permission::Allow,
             rule: Rule::Mcp(McpRule {
-                mcp: McpFilter {
-                    command: Some("node".to_string()),
-                    ..McpFilter::default()
-                },
+                mcp: McpFilter { command: Some("node".to_string()), ..McpFilter::default() },
             }),
         });
         let fixture = PolicyEngine::new(&fixture_workflow);
@@ -237,10 +234,7 @@ mod tests {
         let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
             permission: Permission::Allow,
             rule: Rule::Mcp(McpRule {
-                mcp: McpFilter {
-                    command: Some("np*".to_string()),
-                    ..McpFilter::default()
-                },
+                mcp: McpFilter { command: Some("np*".to_string()), ..McpFilter::default() },
             }),
         });
         let fixture = PolicyEngine::new(&fixture_workflow);
@@ -261,10 +255,7 @@ mod tests {
         let fixture_workflow = PolicyConfig::new().add_policy(Policy::Simple {
             permission: Permission::Allow,
             rule: Rule::Mcp(McpRule {
-                mcp: McpFilter {
-                    url: Some("*".to_string()),
-                    ..McpFilter::default()
-                },
+                mcp: McpFilter { url: Some("*".to_string()), ..McpFilter::default() },
             }),
         });
         let fixture = PolicyEngine::new(&fixture_workflow);

@@ -30,7 +30,8 @@ pub enum PermissionOperation {
     /// call routed through that server. The `config` field carries either a
     /// stdio server (command + args) or an HTTP server (url) — never both.
     Mcp {
-        /// The server configuration — either `Stdio` (command + args) or `Http` (url).
+        /// The server configuration — either `Stdio` (command + args) or `Http`
+        /// (url).
         config: McpServerConfig,
         /// The current working directory at the time of the operation.
         cwd: PathBuf,

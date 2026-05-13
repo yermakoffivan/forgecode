@@ -43,7 +43,9 @@ pub struct Fetch {
 /// Filter criteria nested inside an [`McpRule`]. All fields are optional;
 /// omitting a field means "match any value" for that dimension. Multiple
 /// fields are combined with logical AND.
-#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 pub struct McpFilter {
     /// Optional glob over the command used to launch a stdio MCP server.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -135,7 +137,11 @@ impl McpFilter {
         match config {
             McpServerConfig::Stdio(s) => Self {
                 command: Some(s.command.clone()),
-                args: if s.args.is_empty() { None } else { Some(s.args.clone()) },
+                args: if s.args.is_empty() {
+                    None
+                } else {
+                    Some(s.args.clone())
+                },
                 url: None,
                 dir,
             },
@@ -147,17 +153,22 @@ impl McpFilter {
 
     /// Returns true when this filter is compatible with `config`.
     ///
-    /// A stdio filter (has `command`/`args`, no `url`) only matches stdio servers;
-    /// an HTTP filter (has `url`, no `command`/`args`) only matches HTTP servers;
-    /// an empty filter matches both.
+    /// A stdio filter (has `command`/`args`, no `url`) only matches stdio
+    /// servers; an HTTP filter (has `url`, no `command`/`args`) only
+    /// matches HTTP servers; an empty filter matches both.
     fn matches_config(&self, config: &McpServerConfig) -> bool {
         match config {
             McpServerConfig::Stdio(s) => {
                 // A url-only rule must not match a stdio server
                 self.url.is_none()
-                    && self.command.as_deref().is_none_or(|p| match_pattern(p, &s.command))
+                    && self
+                        .command
+                        .as_deref()
+                        .is_none_or(|p| match_pattern(p, &s.command))
                     && self.args.as_deref().is_none_or(|patterns| {
-                        patterns.iter().all(|p| s.args.iter().any(|a| match_pattern(p, a)))
+                        patterns
+                            .iter()
+                            .all(|p| s.args.iter().any(|a| match_pattern(p, a)))
                     })
             }
             McpServerConfig::Http(h) => {
@@ -531,10 +542,8 @@ mod tests {
     #[test]
     fn test_mcp_stdio_url_rule_does_not_match_stdio_server() {
         // A url-only rule must not match a stdio server
-        let fixture = fixture_mcp_rule(McpFilter {
-            url: Some("*".to_string()),
-            ..McpFilter::default()
-        });
+        let fixture =
+            fixture_mcp_rule(McpFilter { url: Some("*".to_string()), ..McpFilter::default() });
         let operation = fixture_mcp_stdio_operation();
 
         let actual = fixture.matches(&operation);
@@ -596,10 +605,8 @@ mod tests {
     #[test]
     fn test_mcp_http_command_rule_does_not_match_http_server() {
         // A command-only rule must not match an HTTP server
-        let fixture = fixture_mcp_rule(McpFilter {
-            command: Some("*".to_string()),
-            ..McpFilter::default()
-        });
+        let fixture =
+            fixture_mcp_rule(McpFilter { command: Some("*".to_string()), ..McpFilter::default() });
         let operation = fixture_mcp_http_operation();
 
         let actual = fixture.matches(&operation);
