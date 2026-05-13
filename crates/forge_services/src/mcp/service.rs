@@ -3,25 +3,17 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use forge_app::domain::{
-    McpConfig, McpPermissionWarning, McpServerConfig, McpServers, PermissionOperation, Scope,
+    McpConfig, McpServerConfig, McpServers, PermissionOperation, Scope,
     ServerName, ToolCallFull, ToolDefinition, ToolName, ToolOutput,
 };
 use forge_app::{
     EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService,
     PolicyService,
 };
-use futures::future;
 use merge::Merge;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::mcp::tool::McpExecutor;
-
-/// Result of a single server authorization check.
-enum AuthorizationResult {
-    Authorized(ServerName),
-    Denied(ServerName, String),
-    Failed(ServerName, String),
-}
 
 fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> ToolName {
     let sanitized_server_name = ToolName::sanitized(server_name.to_string().as_str());
@@ -113,7 +105,7 @@ where
         Ok(())
     }
 
-    async fn init_mcp(&self) -> anyhow::Result<Vec<McpPermissionWarning>> {
+    async fn init_mcp(&self) -> anyhow::Result<()> {
         let user_cfg = self.manager.read_mcp_config(Some(&Scope::User)).await?;
         let local_cfg = self.manager.read_mcp_config(Some(&Scope::Local)).await?;
         let mut merged = user_cfg.clone();
@@ -122,7 +114,7 @@ where
         // Fast path: if config is unchanged, skip reinitialization without acquiring
         // the lock
         if !self.is_config_modified(&merged).await {
-            return Ok(vec![]);
+            return Ok(());
         }
 
         // Serialise concurrent initialisations so only one caller runs update_mcp at a
@@ -131,7 +123,7 @@ where
 
         // Double-check under the lock: a concurrent caller may have already updated
         if !self.is_config_modified(&merged).await {
-            return Ok(vec![]);
+            return Ok(());
         }
 
         self.update_mcp(user_cfg, local_cfg, merged).await
@@ -142,7 +134,7 @@ where
         user_cfg: McpConfig,
         local_cfg: McpConfig,
         merged: McpConfig,
-    ) -> anyhow::Result<Vec<McpPermissionWarning>> {
+    ) -> anyhow::Result<()> {
         // Compute the hash early before `merged` is consumed, but write it only
         // after all connections are established so waiters on init_lock see a
         // consistent state.
@@ -159,7 +151,7 @@ where
             .collect();
 
         // Only local-scoped servers go through the policy engine.
-        let (local_authorized, warnings) = self.authorize_servers(&local_cfg).await?;
+        let local_authorized = self.authorize_servers(&local_cfg).await?;
         authorized.extend(local_authorized);
 
         let connections: Vec<_> = merged
@@ -193,82 +185,63 @@ where
         // populated, preventing "Tool not found" races.
         *self.previous_config_hash.lock().await = new_hash;
 
-        Ok(warnings)
+        Ok(())
     }
 
-    /// Runs the permission policy against every enabled server in `cfg`
-    /// without prompting the user. Returns the set of authorised server names
-    /// and a list of typed warnings for every server denied by policy.
-    /// Denials are also recorded in `failed_servers`.
+    /// Runs the permission policy against every enabled server in `cfg`.
+    /// Returns the set of authorised server names.
+    /// Denials are recorded in `failed_servers`.
     async fn authorize_servers(
         &self,
         cfg: &McpConfig,
-    ) -> anyhow::Result<(HashSet<ServerName>, Vec<McpPermissionWarning>)> {
+    ) -> anyhow::Result<HashSet<ServerName>> {
         let env = self.infra.get_environment();
 
-        // Collect all enabled servers and run permission checks in parallel
-        let permission_futures: Vec<_> = cfg
-            .mcp_servers
-            .iter()
-            .filter(|(_, server)| !server.is_disabled())
-            .map(|(name, server)| {
-                let operation = PermissionOperation::Mcp {
-                    config: server.clone(),
-                    cwd: env.cwd.clone(),
-                    message: format!("Connect to MCP server: {name}"),
-                };
-                async move {
-                    let name = name.clone();
-                    match self.policy.is_operation_permitted(&operation).await {
-                        Ok(true) => AuthorizationResult::Authorized(name),
-                        Ok(false) => AuthorizationResult::Denied(
-                            name,
-                            "Connection denied by policy".to_string(),
-                        ),
-                        Err(err) => AuthorizationResult::Failed(
-                            name,
-                            format!("Policy check failed: {err:?}"),
-                        ),
+        let mut authorized = HashSet::new();
+        let mut failures = Vec::new();
+
+        for (name, server) in cfg.mcp_servers.iter().filter(|(_, s)| !s.is_disabled()) {
+            let detail = match server {
+                McpServerConfig::Stdio(s) => {
+                    let args = s.args.join(" ");
+                    if args.is_empty() {
+                        s.command.clone()
+                    } else {
+                        format!("{} {args}", s.command)
                     }
                 }
-            })
-            .collect();
-
-        // Execute all permission checks concurrently
-        let results = future::join_all(permission_futures).await;
-
-        // Collect results
-        let mut authorized = HashSet::new();
-        let mut denied: Vec<(ServerName, String)> = Vec::new();
-        let mut warnings: Vec<McpPermissionWarning> = Vec::new();
-
-        for result in results {
-            match result {
-                AuthorizationResult::Authorized(name) => {
-                    authorized.insert(name);
+                McpServerConfig::Http(h) => h.url.clone(),
+            };
+            let operation = PermissionOperation::Mcp {
+                config: server.clone(),
+                cwd: env.cwd.clone(),
+                message: format!("Allow MCP server \"{name}\" to connect?\n  {detail}"),
+            };
+            match self.policy.check_operation_permission(&operation).await {
+                Ok(decision) if decision.allowed => {
+                    authorized.insert(name.clone());
                 }
-                AuthorizationResult::Denied(name, reason) => {
-                    denied.push((name.clone(), reason));
-                    warnings.push(McpPermissionWarning { server_name: name });
+                Ok(_) => {
+                    failures.push((name.clone(), "Connection denied by policy".to_string()));
                 }
-                AuthorizationResult::Failed(name, reason) => {
-                    denied.push((name, reason));
+                Err(err) => {
+                    failures.push((name.clone(), format!("Policy check failed: {err:?}")));
                 }
             }
         }
 
-        if !denied.is_empty() {
-            let mut failures = self.failed_servers.write().await;
-            for (name, reason) in denied {
-                failures.insert(name, reason);
+        if !failures.is_empty() {
+            let mut failed = self.failed_servers.write().await;
+            for (name, reason) in failures {
+                failed.insert(name, reason);
             }
         }
 
-        Ok((authorized, warnings))
+        Ok(authorized)
     }
 
     async fn list(&self) -> anyhow::Result<McpServers> {
-        let warnings = self.init_mcp().await?;
+        self.init_mcp().await?;
 
         let tools = self.tools.read().await;
         let mut grouped_tools = std::collections::HashMap::new();
@@ -282,7 +255,7 @@ where
 
         let failures = self.failed_servers.read().await.clone();
 
-        Ok(McpServers::new(grouped_tools, failures).warnings(warnings))
+        Ok(McpServers::new(grouped_tools, failures))
     }
     async fn clear_tools(&self) {
         self.tools.write().await.clear()

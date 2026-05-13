@@ -41,7 +41,6 @@ use crate::error::UIError;
 use crate::info::Info;
 use crate::input::Console;
 use crate::model::{AppCommand, ForgeCommandManager};
-use crate::policy_notice::{PolicyNotice, tilde_path};
 use crate::porcelain::Porcelain;
 use crate::prompt::ForgePrompt;
 use crate::state::UIState;
@@ -133,25 +132,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         self.spinner.ewrite_ln(title)
     }
 
-    /// Initialises MCP connections and displays a single warning that lists
-    /// every server blocked by the default permission policy.
+    /// Initialises MCP connections.
     async fn load_tools(&mut self) -> anyhow::Result<()> {
-        if let Ok(tools) = self.api.get_tools().await {
-            let warnings = tools.mcp.get_warnings();
-            if !warnings.is_empty() {
-                let permissions_path = self.api.environment().permissions_path();
-                let server_names = warnings.iter().map(|w| w.server_name.to_string()).collect();
-                let warning = PolicyNotice::new()
-                    .row("To enable them, configure", tilde_path(&permissions_path))
-                    .docs(
-                        "Learn how to configure permissions:",
-                        "https://forgecode.dev/docs/permissions/",
-                    )
-                    .items("Blocked servers:", server_names, 3);
-                self.writeln_title(TitleFormat::warning("Local scope MCP servers are disabled by default."))?;
-                self.writeln(warning.to_string())?;
-            }
-        }
+        self.api.get_tools().await.ok();
         Ok(())
     }
 
