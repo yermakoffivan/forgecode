@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::Context;
-use futures::future;
 use forge_app::domain::{
     McpConfig, McpPermissionWarning, McpServerConfig, McpServers, PermissionOperation, Scope,
     ServerName, ToolCallFull, ToolDefinition, ToolName, ToolOutput,
@@ -11,6 +10,7 @@ use forge_app::{
     EnvironmentInfra, KVStore, McpClientInfra, McpConfigManager, McpServerInfra, McpService,
     PolicyService,
 };
+use futures::future;
 use merge::Merge;
 use tokio::sync::{Mutex, RwLock};
 
@@ -221,8 +221,14 @@ where
                     let name = name.clone();
                     match self.policy.is_operation_permitted(&operation).await {
                         Ok(true) => AuthorizationResult::Authorized(name),
-                        Ok(false) => AuthorizationResult::Denied(name, "Connection denied by policy".to_string()),
-                        Err(err) => AuthorizationResult::Failed(name, format!("Policy check failed: {err:?}")),
+                        Ok(false) => AuthorizationResult::Denied(
+                            name,
+                            "Connection denied by policy".to_string(),
+                        ),
+                        Err(err) => AuthorizationResult::Failed(
+                            name,
+                            format!("Policy check failed: {err:?}"),
+                        ),
                     }
                 }
             })
