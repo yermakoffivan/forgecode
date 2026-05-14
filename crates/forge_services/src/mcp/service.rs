@@ -139,12 +139,11 @@ where
             return Ok(());
         }
 
-        // Pass owned clone for fire-and-forget spawn
-        self.clone().update_mcp(user_cfg, local_cfg, merged).await
+        self.update_mcp(user_cfg, local_cfg, merged).await
     }
 
     async fn update_mcp(
-        self,
+        &self,
         user_cfg: McpConfig,
         local_cfg: McpConfig,
         merged: McpConfig,
@@ -168,41 +167,34 @@ where
         let local_authorized = self.authorize_servers(&local_cfg).await?;
         authorized.extend(local_authorized);
 
-        // Clone self before spawning to avoid lifetime issues
-        let service = self.clone();
-        let previous_config_hash = Arc::clone(&service.previous_config_hash);
-        let failed_servers = Arc::clone(&service.failed_servers);
-        let mcp_servers = merged
+        let connections: Vec<_> = merged
             .mcp_servers
             .into_iter()
             .filter(|(name, server)| !server.is_disabled() && authorized.contains(name))
-            .collect::<Vec<_>>();
-
-        tokio::spawn(async move {
-            // Connect to each server sequentially and collect results
-            let mut results = Vec::with_capacity(mcp_servers.len());
-            for (name, server) in mcp_servers {
-                let result = service
+            .map(|(name, server)| async move {
+                let conn = self
                     .connect(&name, server)
                     .await
                     .context(format!("Failed to initiate MCP server: {name}"));
-                results.push((name, result));
-            }
+                (name, conn)
+            })
+            .collect();
 
-            // Record failures
-            for (server_name, result) in results {
-                if let Err(error) = result {
-                    failed_servers
-                        .write()
-                        .await
-                        .insert(server_name, format!("{error:?}"));
-                }
-            }
+        let results = futures::future::join_all(connections).await;
 
-            // Write the hash only after all connections complete so waiters see
-            // fully populated tools, preventing "Tool not found" races.
-            *previous_config_hash.lock().await = new_hash;
-        });
+        for (server_name, result) in results {
+            if let Err(error) = result {
+                self.failed_servers
+                    .write()
+                    .await
+                    .insert(server_name, format!("{error:?}"));
+            }
+        }
+
+        // Write the hash only after join_all finishes so that any waiter on
+        // init_lock re-checks is_config_modified only once self.tools is fully
+        // populated, preventing "Tool not found" races.
+        *self.previous_config_hash.lock().await = new_hash;
 
         Ok(())
     }
