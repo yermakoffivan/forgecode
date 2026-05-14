@@ -333,10 +333,6 @@ where
         merged_cfg.merge(local_cfg.clone());
         let config_hash = merged_cfg.cache_key();
 
-        // Skip the cache if any servers require permission confirmation.
-        // Local-scoped servers always require permission re-verification.
-        // User-scoped servers that were accepted only once (not "Accept and Remember")
-        // do not have a persisted Allow policy, so they must prompt again.
         let needs_permission_check = self.has_servers_requiring_permission(&local_cfg).await?;
 
         if !needs_permission_check
@@ -347,8 +343,6 @@ where
 
         let servers = self.list().await?;
 
-        // Only cache when all servers have explicit persisted Allow policies so
-        // we never silently skip a required permission prompt on the next call.
         if !needs_permission_check {
             self.infra.cache_set(&config_hash, &servers).await?;
         }
