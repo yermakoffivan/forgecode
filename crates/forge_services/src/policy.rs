@@ -165,8 +165,7 @@ where
 {
     /// Unconditionally persist an allow policy for the given operation.
     async fn allow_operation(&self, operation: &PermissionOperation) -> anyhow::Result<()> {
-        self.add_policy_for_operation(operation).await?;
-        Ok(())
+        self.add_policy_for_operation(operation).await.map(|_| ())
     }
 
     /// Check whether an operation is explicitly permitted by the current
