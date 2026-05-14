@@ -339,9 +339,10 @@ where
         let needs_permission_check = self.has_servers_requiring_permission(&local_cfg).await?;
 
         if !needs_permission_check
-            && let Some(cache) = self.infra.cache_get::<_, McpServers>(&config_hash).await? {
-                return Ok(cache.clone());
-            }
+            && let Some(cache) = self.infra.cache_get::<_, McpServers>(&config_hash).await?
+        {
+            return Ok(cache.clone());
+        }
 
         let servers = self.list().await?;
 
