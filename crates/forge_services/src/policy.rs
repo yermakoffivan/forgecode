@@ -225,14 +225,9 @@ where
                     PermissionOperation::Mcp { message, config, cwd } => {
                         let header = mcp_config_header(config);
                         let prompt = SelectPrompt::new(message.clone()).with_header(header);
-                        return match self
-                            .infra
-                            .select_one_enum::<McpPermission>(prompt)
-                            .await?
-                        {
+                        return match self.infra.select_one_enum::<McpPermission>(prompt).await? {
                             Some(McpPermission::Accept) => {
-                                let update_path =
-                                    self.add_policy_for_operation(operation).await?;
+                                let update_path = self.add_policy_for_operation(operation).await?;
                                 Ok(PolicyDecision { allowed: true, path: update_path.or(path) })
                             }
                             Some(McpPermission::Reject) | None => {
