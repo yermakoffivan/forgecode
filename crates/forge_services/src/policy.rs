@@ -231,13 +231,9 @@ where
                             Some(ConfirmPermission::Reject) | None => {
                                 let deny_policy = Policy::Simple {
                                     permission: Permission::Deny,
-                                    rule: forge_app::domain::Rule::Mcp(
-                                        forge_app::domain::McpRule {
-                                            mcp: forge_app::domain::McpFilter::from_config(
-                                                config, cwd,
-                                            ),
-                                        },
-                                    ),
+                                    rule: Rule::Mcp(McpRule {
+                                        mcp: McpFilter::from_config(config, cwd),
+                                    }),
                                 };
                                 self.modify_policy(deny_policy).await?;
                                 Ok(PolicyDecision {
