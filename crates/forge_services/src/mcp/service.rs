@@ -24,7 +24,6 @@ fn generate_mcp_tool_name(server_name: &ServerName, tool_name: &ToolName) -> Too
     ))
 }
 
-#[derive(Clone)]
 pub struct ForgeMcpService<M, I, C, P> {
     tools: Arc<RwLock<HashMap<ToolName, ToolHolder<McpExecutor<C>>>>>,
     failed_servers: Arc<RwLock<HashMap<ServerName, String>>>,
@@ -33,6 +32,20 @@ pub struct ForgeMcpService<M, I, C, P> {
     manager: Arc<M>,
     infra: Arc<I>,
     policy: Arc<P>,
+}
+
+impl<M, I, C, P> Clone for ForgeMcpService<M, I, C, P> {
+    fn clone(&self) -> Self {
+        ForgeMcpService {
+            tools: Arc::clone(&self.tools),
+            failed_servers: Arc::clone(&self.failed_servers),
+            previous_config_hash: Arc::clone(&self.previous_config_hash),
+            init_lock: Arc::clone(&self.init_lock),
+            manager: Arc::clone(&self.manager),
+            infra: Arc::clone(&self.infra),
+            policy: Arc::clone(&self.policy),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -44,11 +57,11 @@ struct ToolHolder<T> {
 
 impl<M, I, C, P> ForgeMcpService<M, I, C, P>
 where
-    M: McpConfigManager,
-    I: McpServerInfra + KVStore + EnvironmentInfra,
+    M: McpConfigManager + 'static,
+    I: McpServerInfra + KVStore + EnvironmentInfra + 'static,
     C: McpClientInfra + Clone,
     C: From<<I as McpServerInfra>::Client>,
-    P: PolicyService,
+    P: PolicyService + 'static,
 {
     pub fn new(manager: Arc<M>, infra: Arc<I>, policy: Arc<P>) -> Self {
         Self {
@@ -126,11 +139,12 @@ where
             return Ok(());
         }
 
-        self.update_mcp(user_cfg, local_cfg, merged).await
+        // Pass owned clone for fire-and-forget spawn
+        self.clone().update_mcp(user_cfg, local_cfg, merged).await
     }
 
     async fn update_mcp(
-        &self,
+        self,
         user_cfg: McpConfig,
         local_cfg: McpConfig,
         merged: McpConfig,
@@ -154,36 +168,37 @@ where
         let local_authorized = self.authorize_servers(&local_cfg).await?;
         authorized.extend(local_authorized);
 
-        let connections: Vec<_> = merged
+        // Clone self before spawning to avoid lifetime issues
+        let service = self.clone();
+        let previous_config_hash = Arc::clone(&service.previous_config_hash);
+        let failed_servers = Arc::clone(&service.failed_servers);
+        let mcp_servers = merged
             .mcp_servers
             .into_iter()
             .filter(|(name, server)| !server.is_disabled() && authorized.contains(name))
-            .map(|(name, server)| async move {
-                let conn = self
-                    .connect(&name, server)
-                    .await
+            .collect::<Vec<_>>();
+        let new_hash = new_hash;
+
+        tokio::spawn(async move {
+            // Connect to each server sequentially and collect results
+            let mut results = Vec::with_capacity(mcp_servers.len());
+            for (name, server) in mcp_servers {
+                let result = service.connect(&name, server).await
                     .context(format!("Failed to initiate MCP server: {name}"));
-
-                (name, conn)
-            })
-            .collect();
-
-        let results = futures::future::join_all(connections).await;
-
-        for (server_name, result) in results {
-            if let Err(error) = result {
-                // Debug formatting preserves the full error chain for diagnostics.
-                self.failed_servers
-                    .write()
-                    .await
-                    .insert(server_name, format!("{error:?}"));
+                results.push((name, result));
             }
-        }
 
-        // Write the hash only after join_all finishes so that any waiter on
-        // init_lock re-checks is_config_modified only once self.tools is fully
-        // populated, preventing "Tool not found" races.
-        *self.previous_config_hash.lock().await = new_hash;
+            // Record failures
+            for (server_name, result) in results {
+                if let Err(error) = result {
+                    failed_servers.write().await.insert(server_name, format!("{error:?}"));
+                }
+            }
+
+            // Write the hash only after all connections complete so waiters see
+            // fully populated tools, preventing "Tool not found" races.
+            *previous_config_hash.lock().await = new_hash;
+        });
 
         Ok(())
     }
@@ -287,11 +302,11 @@ where
 #[async_trait::async_trait]
 impl<M, I, C, P> McpService for ForgeMcpService<M, I, C, P>
 where
-    M: McpConfigManager,
-    I: McpServerInfra + KVStore + EnvironmentInfra,
+    M: McpConfigManager + 'static,
+    I: McpServerInfra + KVStore + EnvironmentInfra + 'static,
     C: McpClientInfra + Clone,
     C: From<<I as McpServerInfra>::Client>,
-    P: PolicyService,
+    P: PolicyService + 'static,
 {
     async fn get_mcp_servers(&self) -> anyhow::Result<McpServers> {
         // Read current configs to compute merged hash
@@ -545,6 +560,9 @@ mod tests {
         let (r1, r2) = tokio::join!(s1.get_mcp_servers(), s2.get_mcp_servers());
         r1.unwrap();
         r2.unwrap();
+
+        // Wait for background initialization tasks to complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let servers = service.get_mcp_servers().await.unwrap();
         let tool_name = servers
