@@ -34,7 +34,7 @@ type RmcpClient = RunningService<RoleClient, InitializeRequestParams>;
 #[derive(Clone)]
 pub struct ForgeMcpClient {
     client: Arc<RwLock<Option<Arc<RmcpClient>>>>,
-    http_client: Arc<Client>,
+    http_client: Arc<OnceLock<anyhow::Result<Client>>>,
     config: McpServerConfig,
     env_vars: BTreeMap<String, String>,
     environment: Environment,
@@ -61,30 +61,9 @@ impl ForgeMcpClient {
         env_vars: &BTreeMap<String, String>,
         environment: Environment,
     ) -> Self {
-        // Try to resolve config early so we can extract headers for the HTTP client.
-        // If resolution fails, fall back to a plain client (headers will be missing
-        // but the error will surface when create_connection is called).
-        let resolved = resolve_http_templates(
-            match &config {
-                McpServerConfig::Http(http) => http.clone(),
-                McpServerConfig::Stdio(_) => McpHttpServer {
-                    url: String::new(),
-                    headers: BTreeMap::new(),
-                    timeout: None,
-                    disable: false,
-                    oauth: forge_domain::McpOAuthSetting::default(),
-                },
-            },
-            env_vars,
-        );
-
-        let http_client = resolved
-            .and_then(|http| Self::build_http_client(&http))
-            .unwrap_or_default();
-
         Self {
             client: Default::default(),
-            http_client: Arc::new(http_client),
+            http_client: Default::default(),
             config,
             env_vars: env_vars.clone(),
             environment,
@@ -211,9 +190,9 @@ impl ForgeMcpClient {
         http: &McpHttpServer,
     ) -> anyhow::Result<RmcpClient> {
         // Try HTTP first, fall back to SSE if it fails
-        let client = self.reqwest_client();
+        let client = self.reqwest_client(http)?;
         let transport = StreamableHttpClientTransport::with_client(
-            client.as_ref().clone(),
+            client.clone(),
             StreamableHttpClientTransportConfig::with_uri(http.url.clone()),
         );
         Ok(self.client_info().serve(transport).await?)
@@ -380,9 +359,9 @@ impl ForgeMcpClient {
         http: &McpHttpServer,
         token: &str,
     ) -> anyhow::Result<Arc<RmcpClient>> {
-        let client = self.reqwest_client();
+        let client = self.reqwest_client(http)?;
         let transport = StreamableHttpClientTransport::with_client(
-            client.as_ref().clone(),
+            client.clone(),
             StreamableHttpClientTransportConfig::with_uri(http.url.clone()).auth_header(token),
         );
 
@@ -478,12 +457,18 @@ impl ForgeMcpClient {
         Ok((code, state))
     }
 
-    fn reqwest_client(&self) -> Arc<Client> {
+    fn reqwest_client(&self, http: &McpHttpServer) -> anyhow::Result<Client> {
         // Reuse the cached HTTP client (with pre-configured default headers)
         // to prevent file descriptor leaks. Each reqwest::Client manages its
         // own connection pool, so creating new clients for each connection
         // leads to "Too many open files" errors.
-        self.http_client.clone()
+        match self
+            .http_client
+            .get_or_init(|| Self::build_http_client(http))
+        {
+            Ok(client) => Ok(client.clone()),
+            Err(error) => Err(anyhow::anyhow!("{error}")),
+        }
     }
 
     async fn list(&self) -> anyhow::Result<Vec<ToolDefinition>> {
