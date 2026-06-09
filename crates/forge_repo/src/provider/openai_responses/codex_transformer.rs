@@ -19,7 +19,6 @@ use forge_domain::Transformer;
 pub struct CodexTransformer;
 
 impl CodexTransformer {
-
     /// Rewrites response payloads that use Codex's `service_tier="fast"`
     /// alias to OpenAI's canonical `service_tier="priority"` value.
     ///
@@ -242,10 +241,8 @@ mod tests {
     #[test]
     fn test_codex_transformer_preserves_missing_reasoning_effort() {
         let mut fixture = fixture();
-        fixture.reasoning = Some(oai::Reasoning {
-            effort: None,
-            summary: Some(oai::ReasoningSummary::Auto),
-        });
+        fixture.reasoning =
+            Some(oai::Reasoning { effort: None, summary: Some(oai::ReasoningSummary::Auto) });
         let mut transformer = CodexTransformer;
         let actual = transformer.transform(fixture);
 

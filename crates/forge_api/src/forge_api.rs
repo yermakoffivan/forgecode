@@ -80,6 +80,10 @@ impl<
         self.app().list_tools().await
     }
 
+    async fn init_mcp(&self) -> Result<()> {
+        self.services.reload_mcp().await
+    }
+
     async fn get_models(&self) -> Result<Vec<Model>> {
         self.app().get_models().await
     }

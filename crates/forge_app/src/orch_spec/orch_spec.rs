@@ -522,8 +522,7 @@ async fn test_doom_loop_detection_adds_user_reminder_after_repeated_calls_on_nex
         .count();
     let expected = 0;
     assert_eq!(
-        actual,
-        expected,
+        actual, expected,
         "Background mode should not emit ToolCallEnd chat responses"
     );
 
@@ -554,8 +553,7 @@ async fn test_doom_loop_detection_adds_user_reminder_after_repeated_calls_on_nex
     let actual = assistant_with_tool_call_indices.len();
     let expected = 5;
     assert_eq!(
-        actual,
-        expected,
+        actual, expected,
         "Expected five assistant tool-call messages: 4 original fs_read + 1 for verification skill"
     );
 

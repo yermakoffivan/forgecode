@@ -16,6 +16,9 @@ pub trait API: Sync + Send {
     /// completion
     async fn discover(&self) -> Result<Vec<crate::File>>;
 
+    /// Initializes MCP servers according to the current configuration.
+    async fn init_mcp(&self) -> Result<()>;
+
     /// Provides information about the tools available in the current
     /// environment
     async fn get_tools(&self) -> anyhow::Result<ToolsOverview>;

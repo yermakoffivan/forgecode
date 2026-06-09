@@ -766,7 +766,9 @@ mod tests {
         use fake::{Fake, Faker};
         let mut fixture: Environment = Faker.fake();
         fixture = fixture.os(os.to_string());
-        fixture.home = home.map(PathBuf::from);
+        if let Some(home_path) = home {
+            fixture = fixture.home(PathBuf::from(home_path));
+        }
         fixture
     }
 
