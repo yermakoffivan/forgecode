@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -276,7 +277,9 @@ impl<A: API + ConsoleWriter + 'static, F: Fn(ForgeConfig) -> A + Send + Sync> UI
         let api = Arc::new(f(config.clone()));
         let env = api.environment();
         let command = Arc::new(ForgeCommandManager::default());
-        let spinner = SharedSpinner::new(SpinnerManager::new(api.clone()));
+        let spinner = SharedSpinner::new(
+            SpinnerManager::new(api.clone()).enabled(std::io::stderr().is_terminal()),
+        );
         Ok(Self {
             state: UIState::new(env.clone()),
             api,

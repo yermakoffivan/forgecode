@@ -213,6 +213,7 @@ pub struct SpinnerManager<P: ConsoleWriter> {
     word_index: Option<usize>,
     message: Option<String>,
     printer: Arc<P>,
+    enabled: bool,
 }
 
 impl<P: ConsoleWriter + 'static> SpinnerManager<P> {
@@ -224,7 +225,17 @@ impl<P: ConsoleWriter + 'static> SpinnerManager<P> {
             word_index: None,
             message: None,
             printer,
+            enabled: true,
         }
+    }
+
+    /// Enables or disables animated spinner rendering.
+    ///
+    /// When disabled, lifecycle messages are still printed but no periodic
+    /// terminal redraws are emitted. This keeps redirected output compact.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
     }
 
     /// Start the spinner with a message
@@ -255,8 +266,11 @@ impl<P: ConsoleWriter + 'static> SpinnerManager<P> {
 
         self.message = Some(word.clone());
 
-        let spinner = ActiveSpinner::start(self.printer.clone(), self.accumulated_elapsed, word);
-        self.spinner = Some(spinner);
+        if self.enabled {
+            let spinner =
+                ActiveSpinner::start(self.printer.clone(), self.accumulated_elapsed, word);
+            self.spinner = Some(spinner);
+        }
 
         Ok(())
     }
@@ -447,6 +461,18 @@ mod tests {
 
         let actual = fixture_spinner.message.clone();
         let expected = None;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_spinner_disabled_keeps_lifecycle_without_active_renderer() {
+        let mut fixture = SpinnerManager::new(Arc::new(DirectPrinter)).enabled(false);
+
+        fixture.start(Some("Thinking")).unwrap();
+        let actual = (fixture.message.clone(), fixture.spinner.is_none());
+        fixture.stop(None).unwrap();
+        let expected = (Some("Thinking".to_string()), true);
+
         assert_eq!(actual, expected);
     }
 
